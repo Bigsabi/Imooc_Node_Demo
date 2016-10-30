@@ -1,0 +1,198 @@
+var Movie = require('../models/movie');
+var Comment = require('../models/comment');
+var Category = require('../models/Category');
+var _ = require('underscore');
+var fs = require('fs');
+var path = require('path');
+
+//Detail页面
+exports.detail = function(req,res){
+	var id = req.params.id;
+	
+	Movie.update({_id:id},{$inc:{pv:1}},function(err){
+		if(err)
+			console.log(err);
+	});
+	Movie.findById(id,function(err,movie){
+		if(err)
+			console.log(err);
+		else
+			Comment
+				.find({movie:id})
+				.populate('reply.from reply.to','name')
+				.populate('from','name')
+				.exec(function(err,comments){
+				if(err)
+					console.log(err);
+				else
+					res.render('detail',{
+						title:'详情页',
+						movie:movie,
+						comments:comments
+					});				
+			})
+	})
+}
+
+//新增
+exports.new = function(req,res){
+	Category.fetch(function(err,categories){
+		if(err)
+      console.log(err);
+		res.render('admin',{
+			title:'录入页',
+			movie:{
+				title:'',
+				doctor:'',
+				country:'',
+				year:'',
+				poster:'',
+				flash:'',
+				summary:'',
+				language:''
+			},
+			categories:categories
+		});
+	});
+}
+
+//更新
+exports.update = function(req,res) {
+	var id = req.params.id;
+
+	if(id){
+		Movie.findById(id,function(err,movie){
+			Category.fetch(function(err,categories){
+				res.render('admin',{
+					title:movie.title,
+					movie:movie,
+					categories:categories
+				});
+			});
+		});
+	}
+}
+
+exports.savePoster=function(req,res,next){
+	var posterData=req.files.uploadPoster;
+	var filePath = posterData.path;
+	var originalFilename=posterData.originalFilename;
+
+	console.log(posterData);
+	if(originalFilename){
+		fs.readFile(filePath,function(err,data){
+			var timestamp = Date.now();
+			var type = posterData.type.split('/')[1];
+			var poster = timestamp + '.' +type;
+			var newPath = path.join(__dirname,"../../","/public/upload/"+poster);
+			fs.writeFile(newPath,data,function(err){
+				req.poster = poster;
+				next();
+				//if(err)
+			});
+		});
+	}else{
+		next();
+	}
+}
+//Admin Post 添加页面
+exports.save = function(req,res){
+
+	var movieObj = req.body.movie;
+	var id=movieObj._id;
+	var _movie;
+	if(req.poster){
+		movieObj.poster=req.poster;
+	}
+	console.log("----------------")
+	console.log(req.poster);
+	if(id){
+		//Category.fetch(function(err,categories){
+
+		//});
+		Movie.findById(id,function(err,movie){
+			if(err)
+				console.log(err);
+			else{
+				_movie = _.extend(movie,movieObj);
+				_movie.save(function(err,movie){
+					if(err)
+						console.log(err);
+					else
+						res.redirect('/movie/'+movie._id);
+				})
+			}
+		});
+	}else{
+		_movie = new Movie(movieObj);
+
+		var categoryId = movieObj.category;
+		var categoryName = movieObj.categoryName;
+
+		console.log('ID'+categoryId);
+		console.log('Name'+categoryName);
+		_movie.save(function(err,movie){
+			if(err)
+				console.log(err);
+			else{
+				if(categoryId){
+					Category.findById(categoryId,function(err,category){
+						if(err)
+							console.log(err);
+						else{
+							category.movies.push(_movie._id);
+							category.save(function(err,category){
+								res.redirect('/movie/'+movie._id);
+							})
+							
+						}
+					});
+				}else if (categoryName){
+					var category = new Category({
+						name: categoryName,
+						movies:[movie._id]
+					});
+					category.save(function(err,category){
+						movie.category = category._id;
+						movie.save(function(err,movie){
+							if(err)
+								console.log(err);
+							res.redirect('/movie/'+movie._id);
+						});
+					});
+				}
+			}
+		});
+	}
+}
+
+//List页面
+exports.list = function(req,res){
+	Movie.fetch(function(err,movies){
+		if(err)
+			console.log(err);
+		else
+			res.render('list',{
+				title:'列表页',
+				movies:movies
+			});
+	});
+}
+
+//List Delete页面
+exports.del = function(req,res){
+	var id = req.query.id;
+	console.log(req.query);
+	console.log(id);
+	//console.log("delete");
+	if(id){
+		console.log("delete");
+		Movie.remove({_id:id},function(err,movie){
+			if(err)
+				console.log(err);
+			else{
+				res.json({success:1});
+			}
+		})
+	}
+}
